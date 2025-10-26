@@ -1,4 +1,4 @@
-# Đồ án Cuối kỳ: Machine Learning and Applications (Fall 2025)
+# Bài tập Cuối kỳ: Machine Learning 
 
 Dự án này triển khai các thuật toán học máy để dự đoán khả năng trả lời đúng của sinh viên, dựa trên dữ liệu từ nền tảng giáo dục Eedi.
 
