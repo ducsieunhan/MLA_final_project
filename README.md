@@ -83,3 +83,89 @@ Nếu output là "Tải dữ liệu thành công" và "Số dòng train:...", ng
 ```bash
 python src/knn.py
 ```
+
+
+## Kết quả knn
+Shape của ma trận: (542, 1774)
+
+==============================
+Bắt đầu thử nghiệm User-based KNN...
+==============================
+
+[User-based, k=1]
+Validation Accuracy: 0.6260
+Confusion Matrix:
+[[1338 1491]
+ [1159 3098]]
+
+[User-based, k=6]
+Validation Accuracy: 0.6778
+Confusion Matrix:
+[[1033 1796]
+ [ 487 3770]]
+
+[User-based, k=11]
+Validation Accuracy: 0.6895
+Confusion Matrix:
+[[1324 1505]
+ [ 695 3562]]
+
+[User-based, k=16]
+Validation Accuracy: 0.6751
+Confusion Matrix:
+[[1088 1741]
+ [ 561 3696]]
+
+[User-based, k=21]
+Validation Accuracy: 0.6681
+Confusion Matrix:
+[[1187 1642]
+ [ 710 3547]]
+
+[User-based, k=26]
+Validation Accuracy: 0.6507
+Confusion Matrix:
+[[1033 1796]
+ [ 679 3578]]
+
+==============================
+Bắt đầu thử nghiệm Item-based KNN...
+==============================
+
+[Item-based, k=1]
+Validation Accuracy: 0.6121
+
+[Item-based, k=6]
+Validation Accuracy: 0.6606
+
+[Item-based, k=11]
+Validation Accuracy: 0.6798
+
+[Item-based, k=16]
+Validation Accuracy: 0.6873
+
+[Item-based, k=21]
+Validation Accuracy: 0.6919
+
+[Item-based, k=26]
+Validation Accuracy: 0.6909
+
+Đã lưu dự đoán Item-based (k=21) vào file: 2201040051_item_knn_preds.npy
+
+==============================
+Báo cáo ROC-AUC (cho k tốt nhất trên tập Validation)
+==============================
+User-based (k=11) - ROC-AUC: 0.7362
+Item-based (k=21) - ROC-AUC: 0.7392
+
+==============================
+Tổng kết và Báo cáo Test Accuracy
+==============================
+Mô hình tốt nhất: Item-based (k=21) với Val Acc = 0.6919
+Đang chạy trên tập Test...
+
+--- KẾT QUẢ CUỐI CÙNG (PART A.1) ---
+[Summary] For K=21, mô hình KNN tốt nhất (Item-based) đạt được 0.6794 test accuracy.
+
+Reflection (Yêu cầu 1d - Hãy chỉnh sửa lại bằng từ ngữ của riêng bạn):
+Item-based KNN cho kết quả tốt nhất khi k=21. Phương pháp này hoạt động tốt hơn user-based, có thể vì việc 'giống nhau' giữa các câu hỏi là một chỉ báo mạnh hơn là sự 'giống nhau' giữa các học sinh.
