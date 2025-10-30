@@ -1,342 +1,278 @@
-# MLA Fall 2025 - Hanoi University
-# Academic Integrity Declaration:
-# I, [Student Name] ([Student ID]), declare that this code is my own original work.
-# I have not copied or adapted code from any external repositories or previous years.
-# Any sources or libraries used are explicitly cited below.
-from utils import (
-    load_train_csv,
-    load_valid_csv,
-    load_public_test_csv,
-    load_train_sparse,
-)
+# item_response.py
+# ĐÃ CẬP NHẬT: Thêm kỹ thuật Early Stopping để chống overfitting.
+
 import numpy as np
-import matplotlib.pyplot as plt # Thêm thư viện để vẽ đồ thị
+import matplotlib.pyplot as plt
+import utils  # Import file utils.py do giảng viên cung cấp
+from typing import List, Dict, Tuple
+import time # Thêm thư viện time để theo dõi
 
+# --- Helper Functions (Không thay đổi) ---
 
-def sigmoid(x):
-    """Apply sigmoid function."""
-    # Thêm xử lý để tránh tràn số (overflow)
+def sigmoid(x: np.ndarray) -> np.ndarray:
+    """Tính hàm sigmoid."""
+    # Thêm xử lý chống tràn (overflow) cho các giá trị quá lớn/nhỏ
     x = np.clip(x, -500, 500)
-    return np.exp(x) / (1 + np.exp(x))
+    return 1. / (1. + np.exp(-x))
 
+def convert_data_format(data_dict: Dict[str, List]) -> List[Dict]:
+    """Chuyển đổi định dạng dữ liệu (Giữ nguyên)."""
+    list_of_dicts = []
+    if not data_dict["user_id"]:
+         return []
+    num_records = len(data_dict["user_id"])
+    has_correct = "is_correct" in data_dict and len(data_dict["is_correct"]) == num_records
+    for i in range(num_records):
+        record = {
+            "user_id": data_dict["user_id"][i],
+            "question_id": data_dict["question_id"][i]
+        }
+        if has_correct:
+            record["is_correct"] = data_dict["is_correct"][i]
+        list_of_dicts.append(record)
+    return list_of_dicts
 
-def neg_log_likelihood(data, theta, beta):
-    """Compute the negative log-likelihood.
-
-    You may optionally replace the function arguments to receive a matrix.
-
-    :param data: A dictionary {user_id: list, question_id: list,
-    is_correct: list}
-    :param theta: Vector
-    :param beta: Vector
-    :return: float
-    """
-    #####################################################################
-    # TODO:                                                             #
-    # Implement the function as described in the docstring.             #
-    #####################################################################
-    log_lklihood = 0.0
-    
-    # Duyệt qua từng tương tác (i, j, c_ij)
-    for i in range(len(data["user_id"])):
-        u = data["user_id"][i]
-        q = data["question_id"][i]
-        c = data["is_correct"][i]
-        
-        # Lấy theta_i và beta_j tương ứng
-        # Đảm bảo index không vượt quá giới hạn
-        if u >= len(theta) or q >= len(beta):
+def neg_log_likelihood(data_list: List[Dict], 
+                       theta: np.ndarray, 
+                       beta: np.ndarray) -> float:
+    """Tính negative log-likelihood (NLL) (Giữ nguyên)."""
+    nll = 0.
+    epsilon = 1e-15
+    for record in data_list:
+        if "is_correct" not in record:
             continue
-            
-        diff = theta[u] - beta[q]
+        user_id = record["user_id"]
+        q_id = record["question_id"]
+        c = record["is_correct"]
         
-        # Tính theo công thức log-likelihood rút gọn:
-        # log_L = c * (theta - beta) - log(1 + exp(theta - beta))
-        log_lklihood += c * diff - np.logaddexp(0, diff) # np.logaddexp(0, x) = log(1 + exp(x))
-        
-    #####################################################################
-    #                       END OF YOUR CODE                            #
-    #####################################################################
-    return -log_lklihood
+        diff = theta[user_id] - beta[q_id]
+        pred_prob = sigmoid(diff)
+        pred_prob = np.clip(pred_prob, epsilon, 1. - epsilon)
+        nll += -(c * np.log(pred_prob) + (1. - c) * np.log(1. - pred_prob))
+    return nll
 
+def predict_probabilities(data_list: List[Dict], 
+                          theta: np.ndarray, 
+                          beta: np.ndarray) -> np.ndarray:
+    """Dự đoán xác suất (Giữ nguyên)."""
+    preds = []
+    for record in data_list:
+        user_id = record["user_id"]
+        q_id = record["question_id"]
+        diff = theta[user_id] - beta[q_id]
+        pred_prob = sigmoid(diff)
+        preds.append(pred_prob)
+    return np.array(preds)
 
-def update_theta_beta(data, lr, theta, beta):
-    """Update theta and beta using gradient descent.
+# --- Core Training Function (ĐÃ NÂNG CẤP) ---
 
-    You are using alternating gradient descent. Your update should look:
-    for i in iterations ...
-        theta <- new_theta
-        beta <- new_beta
-
-    You may optionally replace the function arguments to receive a matrix.
-
-    :param data: A dictionary {user_id: list, question_id: list,
-    is_correct: list}
-    :param lr: float
-    :param theta: Vector
-    :param beta: Vector
-    :return: tuple of vectors
+def irt_train(train_list: List[Dict], 
+              val_list: List[Dict],
+              val_dict: Dict[str, List],
+              num_users: int, 
+              num_questions: int, 
+              lr: float, 
+              iterations: int,
+              patience: int = 5) -> Tuple[np.ndarray, np.ndarray, List, List, int]:
     """
-    #####################################################################
-    # TODO:                                                             #
-    # Implement the function as described in the docstring.             #
-    #####################################################################
-    # Khởi tạo vector đạo hàm
-    theta_grad = np.zeros_like(theta)
-    beta_grad = np.zeros_like(beta)
+    Train mô hình IRT với EARLY STOPPING.
     
-    # 1. Tính tổng đạo hàm (Batch Gradient)
-    for i in range(len(data["user_id"])):
-        u = data["user_id"][i]
-        q = data["question_id"][i]
-        c = data["is_correct"][i]
-
-        if u >= len(theta) or q >= len(beta):
-            continue
-
-        diff = theta[u] - beta[q]
-        p_ij = sigmoid(diff) # Xác suất dự đoán
+    Args:
+        (Các tham số cũ)
+        iterations (int): Số vòng lặp TỐI ĐA.
+        patience (int): Số vòng lặp kiên nhẫn chờ cải thiện trước khi dừng.
         
-        # Đạo hàm của NLL theo theta[u]: (p_ij - c)
-        theta_grad[u] += (p_ij - c)
-        
-        # Đạo hàm của NLL theo beta[q]: -(p_ij - c)
-        beta_grad[q] += -(p_ij - c)
-        
-    # 2. Cập nhật tham số (Batch Gradient Descent)
-    # Lưu ý: Code starter đề cập "alternating gradient descent",
-    # nhưng chúng ta có thể cập nhật cả hai cùng lúc (batch GD).
-    # Để tuân thủ "alternating", chúng ta sẽ cập nhật theta trước,
-    # sau đó dùng theta MỚI để cập nhật beta (hoặc ngược lại).
-    # Tuy nhiên, cập nhật đồng thời đơn giản hơn và thường được chấp nhận.
-    # Ở đây ta cập nhật đồng thời.
-    
-    theta = theta - lr * theta_grad
-    beta = beta - lr * beta_grad
-    
-    #####################################################################
-    #                       END OF YOUR CODE                            #
-    #####################################################################
-    return theta, beta
-
-
-def irt(data, val_data, lr, iterations):
-    """Train IRT model.
-
-    You may optionally replace the function arguments to receive a matrix.
-
-    :param data: A dictionary {user_id: list, question_id: list,
-    is_correct: list}
-    :param val_data: A dictionary {user_id: list, question_id: list,
-    is_correct: list}
-    :param lr: float
-    :param iterations: int
-    :return: (theta, beta, val_acc_lst, train_lld_lst)
+    Returns:
+        Tuple chứa (theta_tốt_nhất, beta_tốt_nhất, train_ll, val_ll, iter_tốt_nhất)
     """
-    # TODO: Initialize theta and beta.
-    
-    # Tìm số lượng học sinh và câu hỏi tối đa
-    # Cần gộp ID từ cả train, valid, (và test) để đảm bảo kích thước
-    all_user_ids = np.concatenate((data["user_id"], val_data["user_id"]))
-    all_q_ids = np.concatenate((data["question_id"], val_data["question_id"]))
-    
-    num_students = np.max(all_user_ids) + 1
-    num_questions = np.max(all_q_ids) + 1
-    
-    # Khởi tạo theta và beta bằng 0 (hoặc giá trị ngẫu nhiên nhỏ)
-    theta = np.zeros(num_students)
+    # Khởi tạo tham số
+    theta = np.zeros(num_users)
     beta = np.zeros(num_questions)
-
-    val_acc_lst = []
-    train_lld_lst = [] # Theo dõi training cost
-
-    for i in range(iterations):
-        neg_lld = neg_log_likelihood(data, theta=theta, beta=beta)
-        score = evaluate(data=val_data, theta=theta, beta=beta)
-        
-        val_acc_lst.append(score)
-        train_lld_lst.append(neg_lld)
-        
-        if (i % 10 == 0) or (i == iterations - 1):
-            print(f"Epoch {i+1}/{iterations} \t NLLK: {neg_lld:.4f} \t Val Score: {score:.4f}")
-            
-        theta, beta = update_theta_beta(data, lr, theta, beta)
-
-    # Trả về các giá trị để báo cáo và vẽ đồ thị
-    return theta, beta, val_acc_lst, train_lld_lst
-
-
-def evaluate(data, theta, beta):
-    """Evaluate the model given data and return the accuracy.
-    :param data: A dictionary {user_id: list, question_id: list,
-    is_correct: list}
-
-    :param theta: Vector
-    :param beta: Vector
-    :return: float
-    """
-    pred = []
-    for i, q in enumerate(data["question_id"]):
-        u = data["user_id"][i]
-        
-        # Xử lý trường hợp ID không có trong tập train
-        if u >= len(theta) or q >= len(beta):
-            # Nếu không có thông tin, dự đoán 0.5 (False)
-            p_a = 0.5
-        else:
-            x = (theta[u] - beta[q]) # .sum() không cần thiết vì là 1D
-            p_a = sigmoid(x)
-            
-        pred.append(p_a >= 0.5)
-        
-    return np.sum((data["is_correct"] == np.array(pred))) / len(data["is_correct"])
-
-
-def main():
-    train_data = load_train_csv("./data")
-    # You may optionally use the sparse matrix.
-    # sparse_matrix = load_train_sparse("./data")
-    val_data = load_valid_csv("./data")
-    test_data = load_public_test_csv("./data")
-
-    #####################################################################
-    # TODO:                                                             #
-    # Tune learning rate and number of iterations. With the implemented #
-    # code, report the validation and test accuracy.                    #
-    #####################################################################
     
-    # Như đã giải thích ở đầu báo cáo, chúng ta KHÔNG tinh chỉnh 'k'
-    # mà sẽ tinh chỉnh 'learning_rate' và 'iterations'.
-    
-    print("--- Bắt đầu tinh chỉnh siêu tham số cho IRT (lr, iterations) ---")
-    
-    # 1. Tinh chỉnh siêu tham số
-    # Các giá trị để thử nghiệm
-    learning_rates = [0.01, 0.005, 0.001]
-    num_iterations = [100, 150, 200]
-
-    best_val_acc = -1
-    best_lr = 0
+    # Biến cho Early Stopping
+    best_val_ll = -np.inf  # Ta muốn tối đa hóa LL
+    best_theta = np.copy(theta)
+    best_beta = np.copy(beta)
     best_iter = 0
-    best_model_params = (None, None)
-    best_history = (None, None) # (val_accs, train_llds)
-
-    for lr in learning_rates:
-        for iters in num_iterations:
-            print(f"\n--- Đang huấn luyện với: lr={lr}, iterations={iters} ---")
-            theta, beta, val_accs, train_llds = irt(train_data, val_data, lr, iters)
+    patience_counter = 0
+    
+    train_ll_history = []
+    val_ll_history = []
+    
+    start_time = time.time()
+    
+    print(f"Bắt đầu training (tối đa {iterations} vòng, patience={patience}):")
+    
+    for i in range(iterations):
+        # Tính gradient (Giữ nguyên)
+        grad_theta = np.zeros_like(theta)
+        grad_beta = np.zeros_like(beta)
+        
+        for record in train_list:
+            user_id = record["user_id"]
+            q_id = record["question_id"]
+            c = record["is_correct"]
+            diff = theta[user_id] - beta[q_id]
+            pred_prob = sigmoid(diff)
+            error = c - pred_prob
+            grad_theta[user_id] += error
+            grad_beta[q_id] += -error
             
-            final_val_acc = val_accs[-1]
-            print(f"-> Kết quả: Val Acc = {final_val_acc:.4f}")
+        # Cập nhật tham số (Gradient Ascent)
+        theta += lr * grad_theta
+        beta += lr * grad_beta
+        
+        # Ghi lại log-likelihood
+        train_nll = neg_log_likelihood(train_list, theta, beta)
+        val_nll = neg_log_likelihood(val_list, theta, beta)
+        train_ll = -train_nll
+        val_ll = -val_nll
+        train_ll_history.append(train_ll)
+        val_ll_history.append(val_ll)
+        
+        # --- LOGIC EARLY STOPPING ---
+        if val_ll > best_val_ll:
+            # Cải thiện: Lưu lại mô hình
+            best_val_ll = val_ll
+            best_theta = np.copy(theta)
+            best_beta = np.copy(beta)
+            best_iter = i
+            patience_counter = 0
+        else:
+            # Không cải thiện: Tăng bộ đếm kiên nhẫn
+            patience_counter += 1
+            
+        if (i + 1) % 10 == 0:
+            val_preds = predict_probabilities(val_list, theta, beta)
+            val_acc = utils.evaluate(val_dict, val_preds)
+            elapsed = time.time() - start_time
+            print(f"Iter {i+1:3d}/{iterations} | Train LL: {train_ll:11.4f} | "
+                  f"Val LL: {val_ll:10.4f} (Best: {best_val_ll:10.4f} at iter {best_iter+1}) | "
+                  f"Val Acc: {val_acc:.4f} | Patience: {patience_counter}/{patience} | Time: {elapsed:.2f}s")
+        
+        # Kiểm tra điều kiện dừng
+        if patience_counter >= patience:
+            print(f"\n--- Dừng sớm (Early Stopping) tại vòng {i + 1} ---")
+            print(f"Mô hình tốt nhất được tìm thấy tại vòng {best_iter + 1} "
+                  f"với Val LL: {best_val_ll:.4f}")
+            break
+            
+    if i == iterations - 1:
+        print("\n--- Training hoàn tất (đạt max iterations) ---")
+        print(f"Mô hình tốt nhất được tìm thấy tại vòng {best_iter + 1} "
+              f"với Val LL: {best_val_ll:.4f}")
 
-            if final_val_acc > best_val_acc:
-                best_val_acc = final_val_acc
-                best_lr = lr
-                best_iter = iters
-                best_model_params = (theta, beta)
-                best_history = (val_accs, train_llds)
+    return best_theta, best_beta, train_ll_history, val_ll_history, best_iter
 
-    print("\n--- Tinh chỉnh hoàn tất ---")
-    print(f"Cấu hình tốt nhất tìm được:")
-    print(f"  Learning Rate (lr*): {best_lr}")
-    print(f"  Iterations (epoch*): {best_iter}")
-    print(f"  Validation Accuracy cao nhất: {best_val_acc:.4f}")
+# --- Plotting Functions (Giữ nguyên) ---
 
-    # 2. Đánh giá trên tập Test với mô hình tốt nhất
-    best_theta, best_beta = best_model_params
+def plot_log_likelihood(iter_list: List[int], 
+                        train_ll: List[float], 
+                        val_ll: List[float], 
+                        student_id: str,
+                        best_iter: int = -1):
+    """Vẽ biểu đồ Log-Likelihood."""
+    filename = f"irt_ll_curves_{student_id}.png"
+    plt.figure(figsize=(10, 6))
+    plt.plot(iter_list, train_ll, label="Training Log-Likelihood")
+    plt.plot(iter_list, val_ll, label="Validation Log-Likelihood")
     
-    if best_theta is not None:
-        test_acc = evaluate(test_data, best_theta, best_beta)
-        print(f"\n=> Độ chính xác trên tập Test (với mô hình tốt nhất): {test_acc:.4f}")
+    # Thêm một đường dọc đánh dấu điểm dừng sớm
+    if best_iter >= 0:
+        plt.axvline(x=best_iter + 1, color='r', linestyle='--', 
+                    label=f'Best Model (Iter {best_iter + 1})')
+        
+    plt.xlabel("Iteration")
+    plt.ylabel("Log-Likelihood")
+    plt.title("IRT: Log-Likelihood vs. Iteration (with Early Stopping)")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(filename)
+    print(f"Đã lưu biểu đồ Log-Likelihood vào: {filename}")
+    plt.close()
 
-        # 3. Vẽ biểu đồ (cho báo cáo)
-        best_val_accs, best_train_llds = best_history
-        epochs = range(1, best_iter + 1)
-        
-        print("\n--- Đang tạo và lưu biểu đồ huấn luyện ---")
-        
-        # Biểu đồ 1: Training Cost (NLL)
-        plt.figure(figsize=(10, 5))
-        plt.plot(epochs, best_train_llds, label='Training NLL', marker='.')
-        plt.xlabel("Epochs")
-        plt.ylabel("Negative Log-Likelihood")
-        plt.title(f"Training Cost (NLL) vs. Epochs (lr={best_lr})")
-        plt.legend()
-        plt.grid(True)
-        plt.savefig("irt_training_cost.png")
-        print("Đã lưu 'irt_training_cost.png'")
+def plot_probability_curves(theta: np.ndarray, 
+                            beta: np.ndarray, 
+                            question_ids: List[int], 
+                            student_id: str):
+    """Vẽ biểu đồ xác suất."""
+    filename = f"irt_prob_curves_{student_id}.png"
+    plt.figure(figsize=(10, 6))
+    theta_range = np.linspace(np.min(theta) - 1, np.max(theta) + 1, 200)
+    for q_id in question_ids:
+        beta_j = beta[q_id]
+        prob_correct = sigmoid(theta_range - beta_j)
+        plt.plot(theta_range, prob_correct, 
+                 label=f"Question {q_id} (β = {beta_j:.2f})")
+    plt.xlabel("Student Ability (θ)")
+    plt.ylabel("Probability of Correct Answer P(c=1)")
+    plt.title("IRT: Probability Curves (from Best Model)")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(filename)
+    print(f"Đã lưu biểu đồ Probability Curves vào: {filename}")
+    plt.close()
 
-        # Biểu đồ 2: Validation Accuracy
-        plt.figure(figsize=(10, 5))
-        plt.plot(epochs, best_val_accs, label='Validation Accuracy', marker='.', color='orange')
-        plt.xlabel("Epochs")
-        plt.ylabel("Accuracy")
-        plt.title(f"Validation Accuracy vs. Epochs (lr={best_lr})")
-        plt.legend()
-        plt.grid(True)
-        plt.savefig("irt_validation_accuracy.png")
-        print("Đã lưu 'irt_validation_accuracy.png'")
-    
-    #####################################################################
-    #                       END OF YOUR CODE                            #
-    #####################################################################
-
-    #####################################################################
-    # TODO:                                                             #
-    # Implement part (d)                                                #
-    #####################################################################
-    # Phần (d) thường yêu cầu vẽ đường cong đặc tính câu hỏi (ICC)
-    # để thể hiện mối quan hệ giữa năng lực (theta) và xác suất trả lời đúng.
-    
-    print("\n--- Thực hiện Phần (d): Vẽ đường cong đặc tính câu hỏi (ICC) ---")
-    
-    if best_beta is not None:
-        # Sắp xếp các câu hỏi dựa trên độ khó (beta)
-        sorted_beta_indices = np.argsort(best_beta)
-        
-        # Lấy các câu hỏi có nhiều tương tác (để beta đáng tin cậy)
-        # (Bỏ qua bước này để đơn giản hóa, chỉ lấy dễ/TB/khó)
-        
-        # Chọn 3 câu hỏi: dễ nhất, khó nhất, và ở giữa
-        q_easy_id = sorted_beta_indices[0]
-        q_medium_id = sorted_beta_indices[len(sorted_beta_indices) // 2]
-        q_hard_id = sorted_beta_indices[-1]
-        
-        beta_easy = best_beta[q_easy_id]
-        beta_medium = best_beta[q_medium_id]
-        beta_hard = best_beta[q_hard_id]
-
-        print(f"Câu dễ (q_id={q_easy_id}): beta = {beta_easy:.4f}")
-        print(f"Câu TB (q_id={q_medium_id}): beta = {beta_medium:.4f}")
-        print(f"Câu khó (q_id={q_hard_id}): beta = {beta_hard:.4f}")
-
-        # Tạo một dải năng lực học sinh (theta) để vẽ
-        theta_range = np.linspace(-5, 5, 200)
-        
-        # Tính xác suất trả lời đúng cho từng câu hỏi
-        prob_easy = sigmoid(theta_range - beta_easy)
-        prob_medium = sigmoid(theta_range - beta_medium)
-        prob_hard = sigmoid(theta_range - beta_hard)
-        
-        # Vẽ đồ thị
-        plt.figure(figsize=(10, 6))
-        plt.plot(theta_range, prob_easy, label=f"Câu dễ (q={q_easy_id}, $\\beta$={beta_easy:.2f})")
-        plt.plot(theta_range, prob_medium, label=f"Câu TB (q={q_medium_id}, $\\beta$={beta_medium:.2f})")
-        plt.plot(theta_range, prob_hard, label=f"Câu khó (q={q_hard_id}, $\\beta$={beta_hard:.2f})")
-        
-        plt.title("Đường cong đặc tính câu hỏi (Item Characteristic Curves - ICC)")
-        plt.xlabel("Năng lực học sinh ($\\theta$)")
-        plt.ylabel("Xác suất trả lời đúng P(c=1)")
-        plt.axvline(x=0, color='gray', linestyle='--', label='Năng lực TB ($\\theta=0$)')
-        plt.legend()
-        plt.grid(True)
-        plt.savefig("irt_icc_plot.png")
-        print("Đã lưu 'irt_icc_plot.png'")
-
-    #####################################################################
-    #                       END OF YOUR CODE                            #
-    #####################################################################
-
+# --- Main execution (ĐÃ CẬP NHẬT) ---
 
 if __name__ == "__main__":
-    main()
+    
+    # --- 1. Thiết lập Hyperparameters ---
+    LEARNING_RATE = 0.01  # Giữ nguyên lr
+    MAX_ITERATIONS = 300  # Tăng số vòng lặp tối đa
+    EARLY_STOP_PATIENCE = 5 # Dừng nếu Val LL không cải thiện sau 5 vòng
+    STUDENT_ID = "2201040116"  # <<< THAY THẾ BẰNG ID CỦA BẠN
+    DATA_DIR = "./data" 
+    
+    print("Đang tải dữ liệu...")
+    train_data_dict = utils.load_train_csv(root_dir=DATA_DIR)
+    val_data_dict = utils.load_valid_csv(root_dir=DATA_DIR)
+    test_data_dict = utils.load_public_test_csv(root_dir=DATA_DIR)
+    
+    if not train_data_dict["user_id"]:
+        print(f"Không tìm thấy dữ liệu training tại {DATA_DIR}. Thoát.")
+        exit()
+
+    train_data_list = convert_data_format(train_data_dict)
+    val_data_list = convert_data_format(val_data_dict)
+    test_data_list = convert_data_format(test_data_dict)
+    
+    all_user_ids = train_data_dict["user_id"] + val_data_dict["user_id"] + test_data_dict["user_id"]
+    all_q_ids = train_data_dict["question_id"] + val_data_dict["question_id"] + test_data_dict["question_id"]
+    NUM_USERS = max(all_user_ids) + 1
+    NUM_QUESTIONS = max(all_q_ids) + 1
+    
+    print(f"Tổng số User: {NUM_USERS}, Tổng số Question: {NUM_QUESTIONS}")
+    
+    # --- 2. Training (với Early Stopping) ---
+    # Hàm train giờ trả về tham số TỐT NHẤT
+    theta, beta, train_ll, val_ll, best_iter = irt_train(
+        train_data_list, val_data_list, val_data_dict,
+        NUM_USERS, NUM_QUESTIONS, 
+        LEARNING_RATE, MAX_ITERATIONS, EARLY_STOP_PATIENCE
+    )
+    
+    # --- 3. Đánh giá (Sử dụng tham số TỐT NHẤT) ---
+    print("\n--- Kết quả đánh giá (từ mô hình tốt nhất) ---")
+    
+    val_preds = predict_probabilities(val_data_list, theta, beta)
+    final_val_acc = utils.evaluate(val_data_dict, val_preds)
+    
+    test_preds = predict_probabilities(test_data_list, theta, beta)
+    final_test_acc = utils.evaluate(test_data_dict, test_preds)
+    
+    print(f"Final Validation Accuracy: {final_val_acc:.4f}")
+    print(f"Final Test Accuracy: {final_test_acc:.4f}")
+
+    # --- 4. Vẽ biểu đồ (Sử dụng tham số TỐT NHẤT) ---
+    print("\nĐang tạo biểu đồ...")
+    
+    iter_list = list(range(1, len(train_ll) + 1))
+    plot_log_likelihood(iter_list, train_ll, val_ll, STUDENT_ID, best_iter)
+    
+    selected_questions = [0, 1, 2] 
+    if NUM_QUESTIONS < 3:
+        selected_questions = list(range(NUM_QUESTIONS))
+    plot_probability_curves(theta, beta, selected_questions, STUDENT_ID)
+    
+    print("\nHoàn thành Part A, Bài 2.")
