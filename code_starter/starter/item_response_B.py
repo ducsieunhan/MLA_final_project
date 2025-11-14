@@ -23,7 +23,6 @@ from utils import (
     load_public_test_csv,
 )
 
-# Use CUDA (GPU) if available, otherwise use CPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
@@ -35,17 +34,14 @@ class IRT_2PL_Model(nn.Module):
     def __init__(self, num_users, num_questions, l2_lambda=0.0):
         super(IRT_2PL_Model, self).__init__()
         
-        # Create embedding parameters
-        # nn.Embedding is a convenient way to store learnable parameters
-        self.theta = nn.Embedding(num_users, 1)        # Student ability (θ)
-        self.beta = nn.Embedding(num_questions, 1)     # Item difficulty (β)
-        self.alpha = nn.Embedding(num_questions, 1)    # Item discrimination (α)
+       
+        self.theta = nn.Embedding(num_users, 1)        
+        self.beta = nn.Embedding(num_questions, 1)     
+        self.alpha = nn.Embedding(num_questions, 1)    
 
-        # Initialize parameters
-        # Initialize theta and beta around 0
+      
         nn.init.normal_(self.theta.weight, mean=0.0, std=0.1)
         nn.init.normal_(self.beta.weight, mean=0.0, std=0.1)
-        # Initialize alpha around 1 (as 1 is neutral for discrimination)
         nn.init.normal_(self.alpha.weight, mean=1.0, std=0.1)
 
     def forward(self, user_id, question_id):
@@ -53,17 +49,15 @@ class IRT_2PL_Model(nn.Module):
         Calculates the probability of a correct response.
         P(c_ij=1) = sigmoid(α_j * (θ_i - β_j))
         """
-        # Get parameters for the given user/question IDs
-        theta_i = self.theta(user_id)          # (batch_size, 1)
-        beta_j = self.beta(question_id)      # (batch_size, 1)
-        alpha_j = self.alpha(question_id)    # (batch_size, 1)
+      
+        theta_i = self.theta(user_id)         
+        beta_j = self.beta(question_id)      
+        alpha_j = self.alpha(question_id)    
         
-        # --- 2PL Formula ---
-        # Ensure alpha is positive (e.g., using softplus or abs)
-        # Using softplus(x) = log(1 + e^x) is numerically stable
+      
         alpha_j_positive = torch.nn.functional.softplus(alpha_j)
         
-        diff = alpha_j_positive * (theta_i - beta_j)   # (batch_size, 1)
+        diff = alpha_j_positive * (theta_i - beta_j)   
         
         return torch.sigmoid(diff)
 
@@ -82,68 +76,61 @@ def load_data_to_tensors(data_dict):
     question_id = torch.tensor(data_dict["question_id"], dtype=torch.long).to(device)
     is_correct = torch.tensor(data_dict["is_correct"], dtype=torch.float).to(device)
     
-    # Reshape is_correct to (N, 1) for compatibility with loss function
+   
     is_correct = is_correct.view(-1, 1)
     
     return user_id, question_id, is_correct
 
 
-# ĐỔI: 'epochs' -> 'iterations'
 def train_model(model, train_data, val_data, lr, iterations, l2_lambda, patience):
     """
     Trains the 2PL IRT model using PyTorch.
     """
-    # Load data into tensors
+  
     train_user, train_q, train_correct = load_data_to_tensors(train_data)
     val_user, val_q, val_correct = load_data_to_tensors(val_data)
     
-    # Define Loss Function (Binary Cross Entropy for NLLK)
+ 
     criterion = nn.BCELoss()
     
-    # Define Optimizer (Adam)
-    # L2 Regularization is added via 'weight_decay'
+   
     optimizer = optim.Adam(
         model.parameters(), 
         lr=lr, 
-        weight_decay=l2_lambda # This is L2 Regularization!
+        weight_decay=l2_lambda 
     )
     
     train_losses = []
     val_losses = []
     val_accuracies = []
-    
-    # Early Stopping variables
+
     best_val_loss = float('inf')
     patience_counter = 0
     best_model_state = None
 
     start_time = time.time()
     
-    # ĐỔI: 'epoch' -> 'i', 'epochs' -> 'iterations'
     for i in range(iterations):
-        model.train()  # Set model to training mode
+        model.train() 
         
-        optimizer.zero_grad()  # Clear old gradients
+        optimizer.zero_grad()  
         
-        # Forward pass
         pred_probs = model(train_user, train_q)
         
-        # Compute loss
         loss = criterion(pred_probs, train_correct)
         
-        # Backward pass (autograd calculates gradients)
+       
         loss.backward()
         
-        # Update weights
+  
         optimizer.step()
         
-        # --- Validation ---
-        model.eval()  # Set model to evaluation mode
-        with torch.no_grad(): # Disable gradient calculation
+    
+        model.eval()  
+        with torch.no_grad(): 
             val_probs = model(val_user, val_q)
             val_loss = criterion(val_probs, val_correct)
-            
-            # Calculate accuracy
+    
             val_preds = (val_probs >= 0.5).float()
             accuracy = (val_preds == val_correct).float().mean()
             
@@ -153,30 +140,27 @@ def train_model(model, train_data, val_data, lr, iterations, l2_lambda, patience
 
         elapsed = time.time() - start_time
         
-        # ĐỔI: 'Epoch' -> 'Iter'
-        # Tên gọi khác (Train Loss, Val Loss, Val Acc) giữ nguyên
+
         print(f"Iter {i+1:3d}/{iterations} | "
               f"Train Loss: {loss.item():.4f} | "
               f"Val Loss: {val_loss.item():.4f} | "
               f"Val Acc: {accuracy.item():.4f} | "
               f"Time: {elapsed:.2f}s")
         
-        # --- Early Stopping Check ---
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             patience_counter = 0
-            # Save the best model state
+   
             best_model_state = model.state_dict()
         else:
             patience_counter += 1
             
         if patience_counter >= patience:
-            # ĐỔI: 'epoch' -> 'iter'
+    
             print(f"\n--- Early Stopping triggered at iter {i+1} ---")
             print(f"Best Validation Loss: {best_val_loss:.4f}")
             break
-            
-    # Restore the best model found
+
     if best_model_state:
         model.load_state_dict(best_model_state)
         
@@ -185,7 +169,7 @@ def train_model(model, train_data, val_data, lr, iterations, l2_lambda, patience
 
 def evaluate_model(model, data_dict):
     """Evaluates the model and returns accuracy."""
-    model.eval() # Set to evaluation mode
+    model.eval() 
     user, q, correct = load_data_to_tensors(data_dict)
     
     with torch.no_grad():
@@ -209,7 +193,6 @@ def plot_curves(model, student_id):
     
     fig, ax = plt.subplots(figsize=(7, 5))
 
-    # Select 3 questions with varied alpha (discrimination)
     sorted_alpha_indices = np.argsort(alpha)
     q_low_alpha = sorted_alpha_indices[len(alpha)//4]
     q_med_alpha = sorted_alpha_indices[len(alpha)//2]
@@ -223,8 +206,7 @@ def plot_curves(model, student_id):
     for idx, q_id in enumerate(selected_questions):
         beta_j = beta[q_id]
         alpha_j = alpha[q_id]
-        
-        # 2PL Formula
+   
         prob_correct = 1 / (1 + np.exp(-alpha_j * (theta_range - beta_j)))
         
         label = (f"j{subscripts[idx]} (α={alpha_j:.2f}, β={beta_j:.2f})")
@@ -261,7 +243,7 @@ def main():
     # Tune these NEW hyperparameters for Part B.                        #
     #####################################################################
     
-    # Find max user/question IDs from all datasets
+
     num_users = max(
         max(train_data["user_id"]),
         max(val_data["user_id"]),
@@ -273,35 +255,26 @@ def main():
         max(test_data["question_id"])
     ) + 1
     
-    # --- Hyperparameters to Tune ---
-    LR = 0.01          # Learning Rate
-    
-    # ĐỔI: 'EPOCHS' -> 'ITERATIONS'
-    ITERATIONS = 150   # Max iterations (Early Stopping will handle the rest)
-    
-    L2_LAMBDA = 0.0    # L2 Regularization strength (weight_decay)
-    PATIENCE = 10      # Patience for Early Stopping
-    
-    STUDENT_ID = "2201040116" # Thay ID của bạn vào đây
-    # -------------------------------
-    
-    # ĐỔI: 'epochs' -> 'iterations'
+
+    LR = 0.01         
+    ITERATIONS = 150  
+    L2_LAMBDA = 0.0    
+    PATIENCE = 10      
+    STUDENT_ID = "2201040116" 
+   
     print(f"Training IRT 2PL (PyTorch) model with lr={LR}, "
           f"iterations={ITERATIONS}, l2_lambda={L2_LAMBDA}, patience={PATIENCE}")
 
-    # Initialize model
     model = IRT_2PL_Model(num_users, num_questions).to(device)
 
-    # Train model
-    # ĐỔI: 'ITERATIONS'
+
     train_losses, val_losses, val_accuracies = train_model(
         model, train_data, val_data, 
         LR, ITERATIONS, L2_LAMBDA, PATIENCE
     )
     
     print("\n--- Final Evaluation (Using BEST 2PL model) ---")
-    
-    # Evaluate on Val and Test data
+
     final_val_acc = evaluate_model(model, val_data)
     final_test_acc = evaluate_model(model, test_data)
     
@@ -310,8 +283,7 @@ def main():
     #####################################################################
     #                       END OF YOUR CODE                            #
     #####################################################################
-    
-    # Plot curves
+
     plot_curves(model, STUDENT_ID)
 
 
