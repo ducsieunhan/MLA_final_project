@@ -148,8 +148,8 @@ def irt(data, val_data, lr, iterations):
         
         if (i + 1) % 10 == 0:
             elapsed = time.time() - start_time
-            print(f"Iter {i+1:3d}/{iterations} | NLLK: {neg_lld:11.4f} | "
-                  f"Val NLLK: {val_neg_lld:10.4f} | Score: {score:.4f} | "
+            print(f"Iter {i+1:3d}/{iterations} | Train Loss: {neg_lld:11.4f} | "
+                  f"Val Loss: {val_neg_lld:10.4f} | Val Acc: {score:.4f} | "
                   f"Time: {elapsed:.2f}s")
         
         theta, beta = update_theta_beta(data, lr, theta, beta)
