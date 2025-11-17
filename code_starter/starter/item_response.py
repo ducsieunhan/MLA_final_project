@@ -1,6 +1,6 @@
 # MLA Fall 2025 - Hanoi University
 # Academic Integrity Declaration:
-# I, [Student Name] ([Student ID]), declare that this code is my own original work.
+# I, Nguyen Van Nam (2201040116), declare that this code is my own original work.
 # I have not copied or adapted code from any external repositories or previous years.
 # Any sources or libraries used are explicitly cited below.
 from utils import (
@@ -148,8 +148,8 @@ def irt(data, val_data, lr, iterations):
         
         if (i + 1) % 10 == 0:
             elapsed = time.time() - start_time
-            print(f"Iter {i+1:3d}/{iterations} | NLLK: {neg_lld:11.4f} | "
-                  f"Val NLLK: {val_neg_lld:10.4f} | Score: {score:.4f} | "
+            print(f"Iter {i+1:3d}/{iterations} | Train Loss: {neg_lld:11.4f} | "
+                  f"Val Loss: {val_neg_lld:10.4f} | Val Acc: {score:.4f} | "
                   f"Time: {elapsed:.2f}s")
         
         theta, beta = update_theta_beta(data, lr, theta, beta)
