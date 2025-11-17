@@ -198,6 +198,9 @@ def main():
                     print("=" * 80)
                     print(f"Training AutoEncoder(k={k}, lr={lr}, lamb={lamb}, epochs={num_epoch})")
                     model = AutoEncoder(num_question, k)
+
+                    init_state = {kk: vv.detach().cpu().clone() for kk, vv in model.state_dict().items()}
+
                     train_losses, val_accs, best_state = train(
                         model, lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch, student_id=""
                     )
@@ -214,7 +217,8 @@ def main():
                         best = {
                             "val": best_val_cfg,
                             "k": k, "lr": lr, "lamb": lamb, "epochs": num_epoch,
-                            "state": best_state
+                            "state": best_state,
+                            "init_state": init_state
                         }
                         best_hist = (train_losses, val_accs)
 
@@ -237,6 +241,7 @@ def main():
     torch.manual_seed(0)
     np.random.seed(0)
     best_model_for_plot = AutoEncoder(num_question, best["k"])
+    best_model_for_plot.load_state_dict(best["init_state"])
     _ = train(
         best_model_for_plot,
         best["lr"], best["lamb"],
