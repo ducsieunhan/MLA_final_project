@@ -237,7 +237,7 @@ def main():
 
 
     #(d)
-    print("\n[Retrain-best] Re-running train once to produce the plot from train() ...")
+    print(f"[Retrain-best] k={best['k']}, lr={best['lr']}, lamb={best['lamb']}, epochs={best['epochs']}")
     torch.manual_seed(0)
     np.random.seed(0)
     best_model_for_plot = AutoEncoder(num_question, best["k"])
