@@ -1,6 +1,6 @@
 # MLA Fall 2025 - Hanoi University
 # Academic Integrity Declaration:
-# I, [Student Name] ([Student ID]), declare that this code is my own original work.
+# I, Ngo Minh Duc (2201040051), declare that this code is my own original work.
 # I have not copied or adapted code from any external repositories or previous years.
 # Any sources or libraries used are explicitly cited below.
 
@@ -180,32 +180,40 @@ def main():
         item_roc_auc = roc_auc_score(val_true_labels, best_item_preds)
         print(f"Item-based (k={best_item_k}) - ROC-AUC: {item_roc_auc:.4f}")
 
-    print("\n" + "="*60)
-    print("Test Set Evaluation")
-    print("="*60)
-
-    if best_user_acc >= best_item_acc:
-        print(f"\nBest Overall Model: User-based (k={best_user_k})")
-        print(f"Validation Accuracy: {best_user_acc:.4f}")
-        print("Evaluating on test set...")
-        test_acc = user_knn_predict_hanu(sparse_matrix, test_data, best_user_k, return_confusion=False)
-        best_k = best_user_k
-        model_type = "User-based"
-    else:
-        print(f"\nBest Overall Model: Item-based (k={best_item_k})")
-        print(f"Validation Accuracy: {best_item_acc:.4f}")
-        print("Evaluating on test set...")
-        test_acc = item_knn_predict_hanu(sparse_matrix, test_data, best_item_k, student_id="")
-        best_k = best_item_k
-        model_type = "Item-based"
-
-    print(f"Test Accuracy: {test_acc:.4f}")
 
     print("\n" + "="*60)
-    print("Part (d): Summary and Reflection")
+    print("Part (d): Test Set Evaluation & Summary")
     print("="*60)
 
-    print(f"\n[Summary] For K={best_k}, the {model_type} KNN achieved {test_acc:.4f} test accuracy.")
+    print(f"\n--- Best Validation Models ---")
+    print(f"Best User-based (on Val): k={best_user_k} (Accuracy: {best_user_acc:.4f})")
+    print(f"Best Item-based (on Val): k={best_item_k} (Accuracy: {best_item_acc:.4f})")
+
+    print("\n--- Evaluating on Test Set ---")
+
+    print(f"Evaluating Best User-based (k={best_user_k})...")
+    user_test_acc = user_knn_predict_hanu(sparse_matrix, test_data, best_user_k, return_confusion=False)
+    print(f"→ User-based Test Accuracy (k={best_user_k}): {user_test_acc:.4f}")
+
+    print(f"\nEvaluating Best Item-based (k={best_item_k})...")
+    item_test_acc = item_knn_predict_hanu(sparse_matrix, test_data, best_item_k, student_id="")
+    print(f"→ Item-based Test Accuracy (k={best_item_k}): {item_test_acc:.4f}")
+
+    print("\n" + "="*60)
+    print("Part (e): Summary and Reflection")
+    print("="*60)
+
+    print("\n[Summary]")
+    print(f"User-based KNN (best k={best_user_k}) achieved {user_test_acc:.4f} test accuracy.")
+    print(f"Item-based KNN (best k={best_item_k}) achieved {item_test_acc:.4f} test accuracy.")
+
+    print("\n[Reflection]")
+    print(f"KNN performance varies significantly with k, peaking at k={best_user_k} (User-based) and k={best_item_k} (Item-based).")
+    print("This suggests a balance between being too sensitive (overfitting) at small k")
+    print("and too generalized (oversmoothing) at large k.")
+    print("The user-based matrices also show a trade-off: as k rose from 1 to 6,")
+    print("False Negatives dropped, but False Positives rose significantly.")
+
 
 
 if __name__ == "__main__":
