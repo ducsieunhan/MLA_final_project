@@ -103,11 +103,9 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch, s
 
             output = model(inputs)
 
-            # Mask: only compute error on observed entries
             mask = ~torch.isnan(target)
             mse = ((output - target)[mask] ** 2).mean()
 
-            # L2 regularization (Frobenius) on linear weights
             reg = 0.5 * lamb * model.get_weight_norm()
             loss = mse + reg
 
@@ -131,18 +129,18 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch, s
         print(f"Epoch {epoch:03d}/{num_epoch} | loss={avg_loss:.6f} | val_acc={val_acc:.4f}")
 
 
-
-    # Plot curves (single figure, two lines)
-    # plt.figure()
-    # plt.plot(range(1, num_epoch + 1), train_losses, label="Train Loss")
-    # plt.plot(range(1, num_epoch + 1), valid_accuracies, label="Valid Accuracy")
-    # plt.xlabel("Epoch")
-    # plt.ylabel("Value")
-    # plt.legend()
-    # plt.tight_layout()
-    # out_png = f"autoencoder_results_{student_id if student_id else 'NA'}.png"
-    # plt.savefig(out_png, dpi=160)
-    # print(f"Saved training curves to {out_png}")
+    if student_id:
+        plt.figure()
+        plt.plot(range(1, len(train_losses) + 1), train_losses, label="Train Loss")
+        plt.plot(range(1, len(valid_accuracies) + 1), valid_accuracies, label="Valid Accuracy")
+        plt.xlabel("Epoch")
+        plt.ylabel("Value")
+        plt.legend()
+        plt.tight_layout()
+        out_png = f"autoencoder_results_{student_id}.png"
+        plt.savefig(out_png, dpi=160)
+        plt.close()
+        print(f"[train] Saved training curves to {out_png}")
 
     return train_losses, valid_accuracies, best_state
 
@@ -191,7 +189,6 @@ def main():
     best = {"val": -1.0}
     best_hist = None  # (train_losses, val_accs)
 
-    # Lưu validation accuracy tốt nhất cho MỖI k (để report đúng yêu cầu)
     per_k_best = {k: -1.0 for k in k_list}
 
     for k in k_list:
@@ -202,13 +199,13 @@ def main():
                     print(f"Training AutoEncoder(k={k}, lr={lr}, lamb={lamb}, epochs={num_epoch})")
                     model = AutoEncoder(num_question, k)
                     train_losses, val_accs, best_state = train(
-                        model, lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch, student_id=student_id
+                        model, lr, lamb, train_matrix, zero_train_matrix, valid_data, num_epoch, student_id=""
                     )
 
                     # Validation accuracy tốt nhất trong các epoch của cấu hình hiện tại
                     best_val_cfg = float(max(val_accs))
 
-                    # Cập nhật "best theo k" (để báo cáo Val cho từng k)
+                    # Cập nhật "best theo k"
                     if best_val_cfg > per_k_best[k]:
                         per_k_best[k] = best_val_cfg
 
@@ -222,13 +219,13 @@ def main():
                         best_hist = (train_losses, val_accs)
 
     # (c):
-    # Validation Accuracy cho MỖI k và k*
+    # Validation Accuracy cho k và k*
     print("#" * 80)
     print("Validation accuracy for each k (best over lr, lambda, epochs):")
     for k in k_list:
         print(f"k={k:>3} -> val_acc={per_k_best[k]:.4f}")
 
-    # k* là k có validation accuracy cao nhất
+    # k*
     k_star = max(per_k_best, key=lambda kk: per_k_best[kk])
     print("#" * 80)
     print(f"Selected k* = {k_star} with highest validation accuracy = {per_k_best[k_star]:.4f}")
@@ -236,19 +233,17 @@ def main():
 
 
     #(d)
-    train_losses, val_accs = best_hist
-    epochs_axis = range(1, len(train_losses) + 1)
-    plt.figure()
-    plt.plot(epochs_axis, train_losses, label="Train Loss")
-    plt.plot(epochs_axis, val_accs, label="Valid Accuracy")
-    plt.xlabel("Epoch")
-    plt.ylabel("Value")
-    plt.legend()
-    plt.tight_layout()
-    out_png = f"autoencoder_results_{student_id or 'NA'}.png"
-    plt.savefig(out_png, dpi=160)
-    plt.close()
-    print(f"Saved training curves to {out_png}")
+    print("\n[Retrain-best] Re-running train once to produce the plot from train() ...")
+    torch.manual_seed(0)
+    np.random.seed(0)
+    best_model_for_plot = AutoEncoder(num_question, best["k"])
+    _ = train(
+        best_model_for_plot,
+        best["lr"], best["lamb"],
+        train_matrix, zero_train_matrix, valid_data,
+        best["epochs"],
+        student_id=student_id
+    )
 
     # After training, evaluate on validation and/or test data as required.
 
